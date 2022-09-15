@@ -2,12 +2,50 @@ const axios = require("axios");
 const FormData = require("form-data");
 
 const SKUID = "5246357";
-const EXERCISE_ID = "2035909";
 const CLASS_ROOM_ID = 12052179;
+const TOKEN = "H6Gd2DQqxgWSodkyyLJaEulbZqrqTDoD"
+const COOKIE = "university_id=2780; platform_id=3; xtbz=cloud; platform_type=1; csrftoken=H6Gd2DQqxgWSodkyyLJaEulbZqrqTDoD; sessionid=4ltcsjjrlo1dfz5jdnnknepo3cc9tj1b"
 
-getProblemList();
+function sleep(time) {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      resolve(true);
+    }, time * 1000);
+  });
+}
 
-function getProblemList() {
+
+getSchedule();
+
+function getSchedule() {
+  var config = {
+    method: 'get',
+    url: `https://cejlu.yuketang.cn/c27/online_courseware/schedule/score_detail/single/${SKUID}/0/?term=latest`,
+    headers: {
+      'xtbz': 'cloud',
+      'x-csrftoken': TOKEN,
+      'cookie': COOKIE
+    }
+  };
+
+  axios(config)
+    .then(async function (response) {
+      const course_list = response.data.data.leaf_level_infos
+      for (let i = 0; i < course_list.length; i++) {
+        if (course_list[i].leaf_type_id
+          // && course_list[i].schedule != 1
+        ) {
+          getProblemList(course_list[i].leaf_type_id);
+          await sleep(25)
+        }
+      }
+    })
+    .catch(function (error) {
+      console.log(error);
+    });
+}
+
+function getProblemList(excercise_id) {
   var data = new FormData();
   data.append(
     "txid",
@@ -16,11 +54,11 @@ function getProblemList() {
 
   var config = {
     method: "get",
-    url: `https://cejlu.yuketang.cn/mooc-api/v1/lms/exercise/get_exercise_list/${EXERCISE_ID}/${SKUID}/?term=latest&uv_id=2780`,
+    url: `https://cejlu.yuketang.cn/mooc-api/v1/lms/exercise/get_exercise_list/${excercise_id}/${SKUID}/?term=latest&uv_id=2780`,
     headers: {
       cookie:
-        "sessionid=aj783ld8xiex1j7ztyp9cki9x8hn0zro; university_id=2780; platform_id=3; xtbz=cloud; platform_type=1; csrftoken=DfQKmGsEVm7lWh1VT8dfn7gODNubF6g5",
-      "x-csrftoken": "DfQKmGsEVm7lWh1VT8dfn7gODNubF6g5",
+        COOKIE,
+      "x-csrftoken": TOKEN,
       xtbz: "cloud",
       ...data.getHeaders(),
     },
@@ -28,12 +66,12 @@ function getProblemList() {
   };
 
   axios(config)
-    .then(function (response) {
+    .then(async function (response) {
       const problems = response.data.data.problems;
-      problems.forEach((problem) => {
-        console.log(problem.problem_id);
-        getProblemAnswerAndApply(problem.problem_id);
-      });
+      for (let i = 0; i < problems.length; i++) {
+        getProblemAnswerAndApply(problems[i].problem_id);
+        await sleep(5)
+      }
     })
     .catch(function (error) {
       console.log(error);
@@ -46,9 +84,9 @@ function getProblemAnswerAndApply(problemId) {
     url: `https://cejlu.yuketang.cn/c27/online_courseware/problem/get_problem_detail/${problemId}/`,
     headers: {
       xtbz: "cloud",
-      "x-csrftoken": "DfQKmGsEVm7lWh1VT8dfn7gODNubF6g5",
+      "x-csrftoken": TOKEN,
       cookie:
-        "sessionid=aj783ld8xiex1j7ztyp9cki9x8hn0zro; university_id=2780; platform_id=3; xtbz=cloud; platform_type=1; csrftoken=DfQKmGsEVm7lWh1VT8dfn7gODNubF6g5",
+        COOKIE,
     },
   };
 
@@ -63,19 +101,25 @@ function getProblemAnswerAndApply(problemId) {
 }
 
 function applyAnswer(problemId, answer) {
-  var data = JSON.stringify({
-    classroom_id: CLASS_ROOM_ID,
-    problem_id: problemId * 1,
-    answer: [answer],
-  });
+  let answer_parameters = []
+  let data
+  try {
+    data = JSON.stringify({
+      classroom_id: CLASS_ROOM_ID,
+      problem_id: problemId * 1,
+      answer: Array.isArray(answer) ? answer : answer.split(""),
+    });
+  } catch (e) {
+    console.log(e.messsage)
+  }
 
   var config = {
     method: "post",
     url: "https://cejlu.yuketang.cn/mooc-api/v1/lms/exercise/problem_apply/?term=latest&uv_id=2780",
     headers: {
-      "x-csrftoken": "DfQKmGsEVm7lWh1VT8dfn7gODNubF6g5",
+      "x-csrftoken": TOKEN,
       cookie:
-        "sessionid=aj783ld8xiex1j7ztyp9cki9x8hn0zro; university_id=2780; platform_id=3; xtbz=cloud; platform_type=1; csrftoken=DfQKmGsEVm7lWh1VT8dfn7gODNubF6g5",
+        COOKIE,
       xtbz: "cloud",
       "Content-Type": "application/json",
     },
@@ -84,10 +128,14 @@ function applyAnswer(problemId, answer) {
 
   axios(config)
     .then(function (response) {
-      console.log(response);
-      console.log(JSON.stringify(response.data.data));
+      console.log(`回答完毕 ID:${problemId} ANSWER: ${answer}`);
     })
-    .catch(function (error) {
-      console.log(error);
+    .catch(async function (error) {
+      if (error.response.data.detail.indexOf("throttled") > -1) {
+        console.log("请求平凡，20秒后重试...", problemId)
+        await sleep(20)
+        console.log("准备重试...", problemId)
+        applyAnswer(problemId, answer)
+      }
     });
 }
